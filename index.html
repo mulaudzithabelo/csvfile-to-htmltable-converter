@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSV to HTML Table Converter</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f6fa;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 15px rgba(0,0,0,0.1);
+        }
+
+        .converter-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .drop-zone {
+            border: 2px dashed #3498db;
+            border-radius: 10px;
+            padding: 3rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 2rem;
+            background: #f8f9fa;
+        }
+
+        .drop-zone.dragging {
+            background: #e8f4fc;
+            border-color: #2980b9;
+        }
+
+        .preview-section {
+            margin-top: 2rem;
+            display: none;
+        }
+
+        .options {
+            margin: 2rem 0;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+
+        .option-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        label {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        input[type="color"], input[type="number"] {
+            padding: 0.3rem;
+            border: 1px solid #bdc3c7;
+            border-radius: 4px;
+            width: 100%;
+        }
+
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 0.8rem 1.5rem;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        button:hover {
+            background: #2980b9;
+        }
+
+        #preview {
+            overflow-x: auto;
+            margin-top: 1rem;
+            border: 1px solid #ecf0f1;
+            border-radius: 5px;
+            padding: 1rem;
+        }
+
+        .generated-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+        }
+
+        .generated-table th, .generated-table td {
+            padding: 12px;
+            text-align: left;
+            border: 1px solid #ddd;
+        }
+
+        .error {
+            color: #e74c3c;
+            margin-top: 1rem;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="converter-header">
+            <h1>CSV to HTML Table Converter</h1>
+            <p>Convert your CSV files to HTML tables instantly</p>
+        </div>
+
+        <div class="drop-zone" id="dropZone">
+            <p>Drag and drop CSV file here</p>
+            <p>or</p>
+            <button onclick="document.getElementById('fileInput').click()">
+                Choose File
+            </button>
+            <input type="file" id="fileInput" accept=".csv" hidden>
+        </div>
+
+        <div class="options">
+            <div class="option-group">
+                <label>Header Background:</label>
+                <input type="color" id="headerBg" value="#3498db">
+            </div>
+            <div class="option-group">
+                <label>Header Text Color:</label>
+                <input type="color" id="headerText" value="#ffffff">
+            </div>
+            <div class="option-group">
+                <label>Border Width (px):</label>
+                <input type="number" id="borderWidth" value="1" min="0" max="5">
+            </div>
+        </div>
+
+        <div class="preview-section">
+            <button onclick="downloadHTML()">
+                Download HTML Table
+            </button>
+            <div id="preview"></div>
+        </div>
+        <div id="errorMessage" class="error"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <script>
+        let csvData = [];
+        const options = {
+            headerBg: '#3498db',
+            headerText: '#ffffff',
+            borderWidth: '1'
+        };
+
+        // Event Listeners
+        document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+        document.querySelectorAll('.options input').forEach(input => {
+            input.addEventListener('input', updatePreview);
+        });
+
+        // Drag & Drop Handlers
+        const dropZone = document.getElementById('dropZone');
+
+        ['dragenter', 'dragover'].forEach(event => {
+            dropZone.addEventListener(event, () => {
+                dropZone.classList.add('dragging');
+            });
+        });
+
+        ['dragleave', 'drop'].forEach(event => {
+            dropZone.addEventListener(event, () => {
+                dropZone.classList.remove('dragging');
+            });
+        });
+
+        dropZone.addEventListener('drop', handleDrop);
+
+        function handleDrop(e) {
+            e.preventDefault();
+            const files = e.dataTransfer.files;
+            if (files.length) handleFile(files[0]);
+        }
+
+        function handleFileSelect(e) {
+            handleFile(e.target.files[0]);
+        }
+
+        function handleFile(file) {
+            document.getElementById('errorMessage').textContent = '';
+            
+            if (!file || !file.name.endsWith('.csv')) {
+                showError('Please select a valid CSV file');
+                return;
+            }
+
+            Papa.parse(file, {
+                complete: (results) => {
+                    if (results.errors.length) {
+                        showError('Error parsing CSV: ' + results.errors[0].message);
+                        return;
+                    }
+                    csvData = results.data;
+                    document.querySelector('.preview-section').style.display = 'block';
+                    updatePreview();
+                },
+                error: (error) => {
+                    showError('Error reading file: ' + error.message);
+                }
+            });
+        }
+
+        function updatePreview() {
+            options.headerBg = document.getElementById('headerBg').value;
+            options.headerText = document.getElementById('headerText').value;
+            options.borderWidth = document.getElementById('borderWidth').value + 'px';
+            
+            const preview = document.getElementById('preview');
+            preview.innerHTML = generateTable();
+        }
+
+        function generateTable() {
+            if (!csvData.length) return '';
+            
+            const headers = csvData[0];
+            const rows = csvData.slice(1);
+
+            return `
+                <table class="generated-table">
+                    <thead>
+                        <tr style="background: ${options.headerBg}; color: ${options.headerText}">
+                            ${headers.map(header => `
+                                <th style="border-width: ${options.borderWidth}">${header}</th>
+                            `).join('')}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows.map(row => `
+                            <tr>
+                                ${row.map(cell => `
+                                    <td style="border-width: ${options.borderWidth}">${cell}</td>
+                                `).join('')}
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        function downloadHTML() {
+            const style = `
+                <style>
+                    .generated-table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        margin: 20px 0;
+                    }
+                    .generated-table th {
+                        background: ${options.headerBg};
+                        color: ${options.headerText};
+                        padding: 12px;
+                        border: ${options.borderWidth} solid #ddd;
+                    }
+                    .generated-table td {
+                        padding: 12px;
+                        border: ${options.borderWidth} solid #ddd;
+                    }
+                </style>
+            `;
+
+            const html = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <title>Generated Table</title>
+                    ${style}
+                </head>
+                <body>
+                    ${generateTable()}
+                </body>
+                </html>
+            `;
+
+            const blob = new Blob([html], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `table-${Date.now()}.html`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function showError(message) {
+            document.getElementById('errorMessage').textContent = message;
+            document.querySelector('.preview-section').style.display = 'none';
+        }
+    </script>
+</body>
+</html>
